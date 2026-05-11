@@ -79,7 +79,7 @@ export default function LoginScreen({ navigation }) {
 
         <View style={styles.footer}>
           <Text style={styles.footerBrand}>AI-Solutions</Text>
-          <Text style={styles.footerSub}>Powered by Autobots Dev</Text>
+          <Text style={styles.footerSub}>Powered by DEX</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

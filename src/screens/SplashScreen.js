@@ -26,7 +26,7 @@ export default function SplashScreen({ navigation }) {
         <Text style={styles.tagline}>Intelligent Assistance. Human Connection.</Text>
       </View>
 
-      <Text style={styles.footer}>Developed by Autobots Dev</Text>
+      <Text style={styles.footer}>Developed by DEX</Text>
     </View>
   );
 }

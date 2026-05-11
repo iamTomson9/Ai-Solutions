@@ -717,6 +717,11 @@ export const getBookingsCountForItem = async (itemId, table) => {
   return row?.count || 0;
 };
 
+export const getEscalatedChats = async () => {
+  const database = await getDb();
+  return await database.getAllAsync('SELECT * FROM escalations ORDER BY created_at DESC');
+};
+
 // ========================
 // AI LEARNING SYSTEM
 // ========================
