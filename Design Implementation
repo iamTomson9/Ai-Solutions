@@ -1,0 +1,604 @@
+# AI-Solution App — Major Overhaul Plan
+
+## Goal
+
+Complete architectural overhaul of the AI-Solution mobile app to:
+1. **Replace AsyncStorage with SQLite** (`expo-sqlite`) for a proper relational database
+2. **Add Drawer (hamburger menu) navigation** alongside bottom tabs for all roles
+3. **Redesign all screens** to match the provided blue/white UI reference designs
+4. **Fix critical bugs** and **add all missing features** (sales rep registration, profile editing, feedback, inquiries, login history, reports)
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Database Migration**: Switching from AsyncStorage to SQLite means **all existing test data will be lost**. The new database will start fresh. This is the right approach for production-quality persistence, but any existing test products/users in AsyncStorage will not carry over.
+
+> [!IMPORTANT]
+> **Color Scheme Change**: Based on the design references, the app will switch from the current dark glassmorphism theme to a **blue/white professional theme** (primary blue `#1565C0`, white backgrounds, blue headers). The dark/light toggle will be removed in favor of this clean professional look. Let me know if you want to keep the dark mode option.
+
+> [!WARNING]
+> **New Dependencies**: This will require installing `expo-sqlite`, `@react-navigation/drawer`, `react-native-gesture-handler`, `react-native-reanimated`, `expo-image-picker`, and `@expo/vector-icons`. The `expo-blur` dependency will be removed since we're moving away from glassmorphism.
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Sales Rep Registration**: From the designs, I see the registration is shared (one form). Should sales reps register from the **same registration form** with a role selector, or should the Admin create sales rep accounts via "Add User" in User Management (like shown in the admin screenshots)?
+> 
+> I recommend: **Both options** — Sales reps can self-register (pending admin verification), AND admins can create sales rep accounts directly from User Management.
+
+> [!NOTE]
+> **Price Field**: The design shows a price field on products (e.g., "P600"). Should prices be in **BWP (Pula)** or should the currency be configurable? I'll default to BWP based on the designs.
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Database Layer"
+        SQL["expo-sqlite Database"]
+        SQL --> Users["users table"]
+        SQL --> Products["products table"]
+        SQL --> Demos["demos table"]
+        SQL --> Events["events table"]
+        SQL --> Bookings["bookings table"]
+        SQL --> Likes["likes table"]
+        SQL --> Inquiries["inquiries table"]
+        SQL --> Feedback["feedback table"]
+        SQL --> ChatHistory["chat_history table"]
+        SQL --> LoginHistory["login_history table"]
+        SQL --> Analytics["analytics table"]
+    end
+    
+    subgraph "Navigation"
+        Auth["Auth Stack (Login/Register)"]
+        CD["Client Drawer"]
+        SD["Sales Drawer"]
+        AD["Admin Drawer"]
+        CD --> CTabs["Client Bottom Tabs"]
+        SD --> STabs["Sales Bottom Tabs"]
+        AD --> ATabs["Admin Bottom Tabs"]
+    end
+```
+
+---
+
+## Database Schema (SQLite)
+
+```sql
+-- Users
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    phone TEXT,
+    company TEXT,
+    country TEXT,
+    date_of_birth TEXT,
+    gender TEXT,
+    profile_image TEXT,
+    role TEXT NOT NULL DEFAULT 'customer',  -- 'customer', 'sales', 'admin'
+    is_verified INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Products (Software products with price)
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    price REAL,
+    description TEXT,
+    banner_image TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Demos (with date/time and location)
+CREATE TABLE demos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    demo_type TEXT,
+    date_time TEXT NOT NULL,
+    location TEXT,
+    description TEXT,
+    banner_image TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Events (with date/time and location)
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    event_type TEXT,
+    date_time TEXT NOT NULL,
+    location TEXT,
+    description TEXT,
+    banner_image TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Bookings / RSVPs
+CREATE TABLE bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    item_id INTEGER NOT NULL,
+    item_type TEXT NOT NULL,  -- 'product', 'demo', 'event'
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Likes
+CREATE TABLE likes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    item_id INTEGER NOT NULL,
+    item_type TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Inquiries
+CREATE TABLE inquiries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    user_name TEXT,
+    message TEXT NOT NULL,
+    item_id INTEGER,
+    item_type TEXT,
+    status TEXT DEFAULT 'open',  -- 'open', 'responded'
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Feedback
+CREATE TABLE feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    user_name TEXT,
+    rating INTEGER NOT NULL,
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Chat History
+CREATE TABLE chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    sender TEXT NOT NULL,  -- 'user', 'ai', 'sales'
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Login History
+CREATE TABLE login_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    logged_in_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Analytics
+CREATE TABLE analytics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    data TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Escalations
+CREATE TABLE escalations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',  -- 'pending', 'resolved'
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+---
+
+## Proposed Changes
+
+### Phase 1: Foundation (Database + Dependencies + Theme)
+
+---
+
+#### [MODIFY] [package.json](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/package.json)
+Install new dependencies:
+- `expo-sqlite` — SQLite database
+- `@react-navigation/drawer` — Hamburger menu drawer
+- `react-native-gesture-handler` — Required by drawer
+- `react-native-reanimated` — Required by drawer
+- `expo-image-picker` — Profile picture + banner image uploads
+- `@expo/vector-icons` — Tab bar and UI icons
+- `expo-status-bar` — Already present
+
+Remove: `expo-blur` (no longer needed with new design)
+
+#### [NEW] [babel.config.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/babel.config.js)
+Add `react-native-reanimated/plugin` to the Babel config (required by drawer nav).
+
+#### [DELETE] [ThemeContext.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/context/ThemeContext.js)
+Replace with a simple static theme constants file since we're adopting the fixed blue/white design.
+
+#### [NEW] [theme.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/constants/theme.js)
+Static color constants matching the design references:
+- `primary`: `#1565C0` (blue)
+- `primaryDark`: `#0D47A1`
+- `primaryLight`: `#1E88E5`
+- `background`: `#F5F5F5`
+- `surface`: `#FFFFFF`
+- `text`: `#212121`
+- `textSecondary`: `#757575`
+- `danger`: `#E53935`
+- `success`: `#43A047`
+- `border`: `#E0E0E0`
+
+#### [NEW] [DatabaseService.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/services/DatabaseService.js)
+Complete replacement for `StorageService.js`. Uses `expo-sqlite` with all CRUD methods for every table defined in the schema above. Key methods:
+- `initDatabase()` — Creates all tables
+- User CRUD: `createUser`, `getUserByEmail`, `getUsers`, `updateUser`, `deleteUser`, `verifyUser`
+- Product CRUD: `createProduct`, `getProducts`, `updateProduct`, `deleteProduct`
+- Demo CRUD: `createDemo`, `getDemos`, `updateDemo`, `deleteDemo`
+- Event CRUD: `createEvent`, `getEvents`, `updateEvent`, `deleteEvent`
+- `addBooking`, `getBookings`, `getBookingsForItem`, `getUserBookings`
+- `toggleLike`, `getLikesForItem`, `getUserLikes`
+- `submitInquiry`, `getInquiries`, `getInquiriesForSales`, `updateInquiryStatus`
+- `submitFeedback`, `getAllFeedback`
+- `saveChatMessage`, `getChatHistory`, `getAllChatHistories`
+- `logLogin`, `getLoginHistory`
+- `logAnalytics`, `getAnalytics`
+- `escalateChat`, `getEscalatedChats`, `resolveEscalation`
+
+#### [DELETE] [StorageService.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/services/StorageService.js)
+Replaced by `DatabaseService.js`.
+
+---
+
+### Phase 2: Auth & Navigation Restructure
+
+---
+
+#### [MODIFY] [AuthContext.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/context/AuthContext.js)
+- Switch from `StorageService` to `DatabaseService`
+- Add `registerSalesRep(details)` function
+- Add `updateProfile(fields)` function for profile editing
+- Add `logLoginEvent()` to record login history
+- Seed default admin on first launch
+
+#### [MODIFY] [App.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/App.js)
+- Wrap app in `SQLiteProvider` + `GestureHandlerRootView`
+- Remove `ThemeProvider`
+- Add new screens to stack: `SalesOnboarding`, `CreateDemo`, `CreateEvent`, `CreateProduct`
+- Route to Drawer navigators instead of Tab navigators
+
+#### [NEW] [ClientDrawer.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/navigation/ClientDrawer.js)
+Drawer navigator for clients with menu items:
+- Dashboard (Home)
+- Products (Browse/Reserve)
+- Demos (Browse/Schedule)
+- Events (Browse/Register)
+- AI Support (Chatbot)
+- Profile
+- Feedback
+- Logout
+
+Each drawer item routes to the corresponding screen or tab.
+
+#### [NEW] [SalesDrawer.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/navigation/SalesDrawer.js)
+Drawer navigator for sales reps:
+- Dashboard (Stats overview)
+- Product Management
+- Demo Management
+- Event Management
+- Customer Inquiries
+- Transferred Chats
+- Profile
+- Logout
+
+#### [NEW] [AdminDrawer.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/navigation/AdminDrawer.js)
+Drawer navigator for admins:
+- Dashboard (Overview stats)
+- User Management
+- Login History
+- Reports & Analytics
+- Feedback
+- Profile
+- Logout
+
+#### [MODIFY] [CustomerTabs.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/navigation/CustomerTabs.js)
+Update with proper icons from `@expo/vector-icons` (Ionicons). Tabs: Home, Products, Demos, Events, Profile.
+
+#### [MODIFY] [SalesTabs.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/navigation/SalesTabs.js)
+Update with icons. Tabs: Dashboard, Products, Demos, Events, Profile.
+
+#### [MODIFY] [AdminTabs.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/navigation/AdminTabs.js)
+Update with icons. Tabs: Dashboard, Users, Reports, Feedback, Profile.
+
+---
+
+### Phase 3: Auth Screens (Matching Design References)
+
+---
+
+#### [NEW] [SplashScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SplashScreen.js)
+Dark blue splash screen matching design:
+- AI-Solutions robot icon centered
+- "AI-Solutions" title
+- "Intelligent Assistance. Human Connection." tagline
+- "Developed by G&T" footer
+- Auto-navigates to Login after 2 seconds
+
+#### [MODIFY] [LoginScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/LoginScreen.js)
+Redesign to match reference:
+- Blue user avatar icon at top
+- "Welcome Back" heading
+- "Sign in to continue" subtitle
+- Email and Password fields with labels
+- "Forgot Password?" link (right-aligned)
+- Blue "Sign In" button
+- "Don't have an account? Register" link
+- "AI-Solutions — Powered by G&T" footer
+
+#### [MODIFY] [CustomerOnboardingScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/CustomerOnboardingScreen.js)
+Redesign as "Create Account" screen:
+- Blue person icon at top
+- "Create Account" heading
+- "Sign up to get started" subtitle
+- Fields: Full Name, Email, Password (with eye toggle), Phone Number, Country
+- Blue "Register" button
+- "Already have an account? Login" link
+
+#### [NEW] [SalesOnboardingScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesOnboardingScreen.js)
+Same design as customer registration but with role set to 'sales'.
+
+---
+
+### Phase 4: Client Screens (Matching Design References)
+
+---
+
+#### [MODIFY] [CustomerDashboard.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/CustomerDashboard.js)
+Redesign as client home with:
+- Header: "Dashboard" title + hamburger menu icon (☰)
+- Greeting: "Hello [Name]"
+- Quick action grid (2×3): AI Support, Demos, Events, Profile, Products, Feedback
+- "Make Enquiry" button
+- "Logout" button (red text)
+
+#### [NEW] [ClientProductsScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/ClientProductsScreen.js)
+"Available Products" screen:
+- Search bar
+- Product cards showing: name, price (e.g., "P600"), description preview
+- Blue "Reserve" button on each card
+
+#### [NEW] [ClientDemosScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/ClientDemosScreen.js)
+"Available Demos" screen:
+- Search bar
+- Demo cards: name, date, location, description
+- Blue "Schedule" button on each card
+
+#### [NEW] [ClientEventsScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/ClientEventsScreen.js)
+"Available Events" screen:
+- Search bar
+- Event cards: name, date, location, description
+- Blue "Register" button on each card
+
+#### [MODIFY] [CustomerChat.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/CustomerChat.js)
+Redesign as "Support Chat":
+- Blue header bar: "Support Chat" + chat icon
+- AI avatar icon on bot messages
+- Message bubbles with timestamps
+- Text input: "Type your message..." + microphone icon + blue send button
+- Remove glassmorphism, use white/blue scheme
+
+#### [MODIFY] [ProfileScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/ProfileScreen.js)
+Full "Update Profile" screen:
+- Profile picture (tappable to change via expo-image-picker)
+- Editable fields: Full Name, Email (read-only), Password (change), Phone, Date of Birth, Gender
+- Blue "Update Profile" button
+- Success confirmation dialog
+
+#### [NEW] [FeedbackScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/FeedbackScreen.js)
+"Rate Your Experience" screen:
+- "How was your experience?" heading
+- 5-star interactive rating
+- "Share your feedback" text area
+- "Attach a screenshot (optional)" with upload
+- Blue "Submit Feedback" button
+- Success confirmation: "Thanks for your feedback!" with green checkmark
+
+#### [MODIFY] [ProductDetails.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/ProductDetails.js)
+Update with new blue/white design and add Inquire functionality.
+
+---
+
+### Phase 5: Sales Rep Screens (Matching Design References)
+
+---
+
+#### [MODIFY] [SalesDashboard.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesDashboard.js)
+Complete redesign as "Sales Dashboard":
+- Header: "Sales Dashboard" + initials badge + red "Logout"
+- Stats cards: Events RSVP count, Demos Scheduled count
+- Lead Conversion line chart (from actual booking data)
+- Quick Access menu: Customer Inquiries, Transferred Chats, Demo Schedules, Event Management, Product Management
+
+#### [NEW] [SalesProductsScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesProductsScreen.js)
+"Product Management" screen:
+- Filter dropdown (Upcoming Products)
+- Product cards with name, price, description, edit/delete icons
+- FAB (+) to create new product
+- Success/confirmation toasts for CRUD operations
+
+#### [NEW] [SalesDemosScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesDemosScreen.js)
+"Demo Schedule" screen:
+- Demo cards showing time range, location, description
+- Edit/Delete capabilities
+- "No demos scheduled. Add one" empty state
+
+#### [NEW] [SalesEventsScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesEventsScreen.js)
+"Event Management" screen:
+- Filter dropdown (Upcoming Events)
+- Event cards with details, RSVP count, edit/delete
+- Confirmation dialogs for delete
+
+#### [NEW] [CreateProductScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/CreateProductScreen.js)
+"Create Product" form:
+- Banner image upload area
+- Product Name, Price, Description fields
+- Blue "Save Product" button
+
+#### [NEW] [CreateDemoScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/CreateDemoScreen.js)
+"Create Demo" form:
+- Banner image upload area
+- Demo Name, Demo Type, Date & Time pickers, Location, Description
+- Blue "Save Demo" button
+- Red "Delete Demo" button (when editing)
+
+#### [NEW] [CreateEventScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/CreateEventScreen.js)
+"Create Event" form:
+- Banner image upload area
+- Event Name, Event Type, Date & Time, Location, Description
+- Blue "Save Event" button
+
+#### [NEW] [SalesInquiriesScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesInquiriesScreen.js)
+"Customer Inquiries" screen:
+- Client messages with "Open" status badges
+- "Respond" button for each inquiry
+
+#### [MODIFY] [SalesSupportInboxScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesSupportInboxScreen.js)
+Redesign transferred chats list with new styling.
+
+#### [MODIFY] [SalesChatReply.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesChatReply.js)
+Update styling to blue/white theme.
+
+#### [MODIFY] [SalesStatsScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/SalesStatsScreen.js)
+Merge into the new SalesDashboard (this screen will be removed).
+
+---
+
+### Phase 6: Admin Screens (Matching Design References)
+
+---
+
+#### [MODIFY] [AdminDashboard.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/AdminDashboard.js)
+Redesign as "Admin Dashboard":
+- Header: "Admin Dashboard" + initials badge (green) + red "Logout"
+- Stats cards: Registered Users count, AI Responses count (from actual DB)
+- AI Performance section with metrics
+- Quick Access menu: User Management, Users Login History, Analytics Dashboard, Feedback
+
+#### [MODIFY] [AdminUsersScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/AdminUsersScreen.js)
+Redesign "User Management":
+- "Add User" button (top-right, blue)
+- Search bar
+- Filter tabs: Clients, Sales Reps, Admins
+- User cards with role badge (green for active, pending for unverified)
+- Edit and Delete buttons (blue/red)
+- Edit User modal (Name, Email, Password, Role)
+- Add User modal
+- Confirm deletion dialog
+
+#### [NEW] [AdminLoginHistoryScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/AdminLoginHistoryScreen.js)
+"Login History" screen:
+- Search bar
+- List of login events: email, timestamp
+- "Request First" badge for first-time logins
+
+#### [NEW] [AdminReportsScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/AdminReportsScreen.js)
+"Reports & Analytics" screen:
+- "Generate Report" button
+- Available Reports list (Client Conversations grouped by date)
+- Tap report to view "Report Details" — full chat transcript
+
+#### [NEW] [AdminFeedbackScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/AdminFeedbackScreen.js)
+"Client Feedback" screen:
+- Search bar
+- Filter tabs: Newest, Oldest, Highest, Lowest
+- Feedback cards: user name, star rating, comment, timestamp
+
+#### [MODIFY] [AdminChatReviewScreen.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/screens/AdminChatReviewScreen.js)
+Redesign with blue/white theme for chat review.
+
+---
+
+### Phase 7: Services Update
+
+---
+
+#### [MODIFY] [GeminiService.js](file:///c:/Users/tlhab/.gemini/antigravity/scratch/AISolutionsApp/src/services/GeminiService.js)
+- Update to use `DatabaseService` instead of `StorageService`
+- Pull product/demo/event data from SQLite for system prompt context
+
+---
+
+## File Summary
+
+| Action | File | Description |
+|--------|------|-------------|
+| NEW | `DatabaseService.js` | SQLite database layer |
+| NEW | `theme.js` | Static color constants |
+| NEW | `babel.config.js` | Reanimated plugin |
+| NEW | `ClientDrawer.js` | Client hamburger menu |
+| NEW | `SalesDrawer.js` | Sales hamburger menu |
+| NEW | `AdminDrawer.js` | Admin hamburger menu |
+| NEW | `SplashScreen.js` | App splash/intro |
+| NEW | `SalesOnboardingScreen.js` | Sales rep registration |
+| NEW | `ClientProductsScreen.js` | Client browse products |
+| NEW | `ClientDemosScreen.js` | Client browse demos |
+| NEW | `ClientEventsScreen.js` | Client browse events |
+| NEW | `FeedbackScreen.js` | Client feedback form |
+| NEW | `SalesProductsScreen.js` | Sales product CRUD |
+| NEW | `SalesDemosScreen.js` | Sales demo management |
+| NEW | `SalesEventsScreen.js` | Sales event management |
+| NEW | `CreateProductScreen.js` | Create/edit product form |
+| NEW | `CreateDemoScreen.js` | Create/edit demo form |
+| NEW | `CreateEventScreen.js` | Create/edit event form |
+| NEW | `SalesInquiriesScreen.js` | Sales view inquiries |
+| NEW | `AdminLoginHistoryScreen.js` | Admin login history |
+| NEW | `AdminReportsScreen.js` | Admin reports & analytics |
+| NEW | `AdminFeedbackScreen.js` | Admin feedback viewer |
+| MODIFY | `App.js` | SQLite + Drawer wrappers |
+| MODIFY | `AuthContext.js` | SQLite auth + profile editing |
+| MODIFY | `LoginScreen.js` | UI redesign |
+| MODIFY | `CustomerOnboardingScreen.js` | UI redesign |
+| MODIFY | `CustomerDashboard.js` | Quick actions home |
+| MODIFY | `CustomerChat.js` | Blue/white chat UI |
+| MODIFY | `ProfileScreen.js` | Full editable profile |
+| MODIFY | `ProductDetails.js` | New design + inquiry |
+| MODIFY | `SalesDashboard.js` | Stats dashboard |
+| MODIFY | `AdminDashboard.js` | Admin dashboard |
+| MODIFY | `AdminUsersScreen.js` | User management |
+| MODIFY | `AdminChatReviewScreen.js` | Chat review |
+| MODIFY | `SalesSupportInboxScreen.js` | Support inbox |
+| MODIFY | `SalesChatReply.js` | Chat reply |
+| MODIFY | `GeminiService.js` | SQLite integration |
+| MODIFY | `CustomerTabs.js` | Icons + new tabs |
+| MODIFY | `SalesTabs.js` | Icons + new tabs |
+| MODIFY | `AdminTabs.js` | Icons + new tabs |
+| DELETE | `ThemeContext.js` | Replaced by theme.js |
+| DELETE | `StorageService.js` | Replaced by DatabaseService |
+| DELETE | `SalesStatsScreen.js` | Merged into SalesDashboard |
+| DELETE | `CustomerBookings.js` | Feature moved into separate screens |
+
+---
+
+## Verification Plan
+
+### Automated Tests
+1. `npx expo start --clear` — Verify clean build with new dependencies
+2. Create a test customer account → verify it writes to SQLite
+3. Create a product, demo, event as sales rep → verify CRUD works
+4. Schedule/book items as customer → verify bookings persist
+5. Submit feedback as customer → verify it shows in admin feedback screen
+6. Test hamburger drawer opens/closes on all roles
+7. Verify login history is recorded and viewable
+
+### Manual Verification
+- Walk through all screens visually comparing to the design references
+- Test profile picture upload flow
+- Test the AI chatbot still works with SQLite data context
+- Verify analytics reflect actual database counts
