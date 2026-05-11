@@ -36,6 +36,11 @@
   },
   "private": true,
   "devDependencies": {
-    "babel-preset-expo": "~54.0.10"
+    "babel-preset-expo": "~54.0.10",
+    "expo-cli": "^6.0.0"
+  }
+  ,
+  "engines": {
+    "node": "18.x"
   }
 }

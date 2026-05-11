@@ -189,7 +189,7 @@ export default function CustomerChat({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, marginTop: 20 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1 },
   backBtn: { width: 40 },
   tabContainer: { flex: 1, flexDirection: 'row', borderRadius: 20, padding: 3, marginHorizontal: 10 },
